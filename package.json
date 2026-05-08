@@ -1,0 +1,15 @@
+{
+  "name": "buku_induk",
+  "version": "1.0.0",
+  "description": "Sistem Buku Induk Perpustakaan",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js",
+    "setup": "node setup-db.js",
+    "migrate": "node src/database/migrate.js"
+  },
+  "keywords": ["perpustakaan", "buku-induk", "library"],
+  "author": "",
+  "license": "ISC"
+}

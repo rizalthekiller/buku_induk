@@ -1,0 +1,574 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Buku Induk Perpustakaan</title>
+  <meta name="description" content="Sistem Buku Induk Perpustakaan - Manajemen koleksi buku digital dengan spreadsheet interaktif" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/css/style.css" />
+</head>
+<body>
+
+<!-- ═══════════════════════════════════════════════════════
+     SIDEBAR
+════════════════════════════════════════════════════════ -->
+<aside class="sidebar" id="sidebar">
+  <div class="sidebar-logo">
+    <div class="logo-icon">📚</div>
+    <div class="logo-text">
+      <span class="logo-title">BUKU INDUK</span>
+      <span class="logo-sub">Perpustakaan</span>
+    </div>
+  </div>
+
+  <nav class="sidebar-nav">
+    <a href="#" class="nav-item active" data-page="dashboard" id="nav-dashboard">
+      <span class="nav-icon">🏠</span><span>Dashboard</span>
+    </a>
+    <a href="#" class="nav-item" data-page="buku-induk" id="nav-buku-induk">
+      <span class="nav-icon">📖</span><span>Buku Induk</span>
+    </a>
+    <a href="#" class="nav-item" data-page="kolom" id="nav-kolom">
+      <span class="nav-icon">🎨</span><span>Kustomisasi Kolom</span>
+    </a>
+    <a href="#" class="nav-item" data-page="template" id="nav-template">
+      <span class="nav-icon">📋</span><span>Template</span>
+    </a>
+    <a href="#" class="nav-item" data-page="pengaturan" id="nav-pengaturan">
+      <span class="nav-icon">⚙️</span><span>Pengaturan</span>
+    </a>
+  </nav>
+
+  <div class="sidebar-footer">
+    <div class="sidebar-version">v1.0.0 · Node.js + PostgreSQL</div>
+  </div>
+</aside>
+
+<!-- ═══════════════════════════════════════════════════════
+     MAIN CONTENT
+════════════════════════════════════════════════════════ -->
+<main class="main-content" id="main-content">
+
+  <!-- TOP BAR -->
+  <header class="topbar">
+    <div class="topbar-left">
+      <button class="btn-icon" id="btn-toggle-sidebar" title="Toggle Sidebar">☰</button>
+      <h1 class="page-title" id="page-title">Dashboard</h1>
+    </div>
+    <div class="topbar-right">
+      <span class="topbar-time" id="topbar-time"></span>
+      <button class="btn btn-outline" id="btn-refresh" title="Refresh Data">↺ Refresh</button>
+    </div>
+  </header>
+
+  <!-- ───── PAGE: DASHBOARD ───── -->
+  <section class="page" id="page-dashboard">
+    <div class="stats-grid">
+      <div class="stat-card stat-blue">
+        <div class="stat-icon">📚</div>
+        <div class="stat-info">
+          <div class="stat-value" id="stat-judul">—</div>
+          <div class="stat-label">Total Judul</div>
+        </div>
+      </div>
+      <div class="stat-card stat-purple">
+        <div class="stat-icon">📦</div>
+        <div class="stat-info">
+          <div class="stat-value" id="stat-eksemplar">—</div>
+          <div class="stat-label">Total Eksemplar</div>
+        </div>
+      </div>
+      <div class="stat-card stat-green">
+        <div class="stat-icon">📅</div>
+        <div class="stat-info">
+          <div class="stat-value" id="stat-tahun">—</div>
+          <div class="stat-label">Tahun Terbaru</div>
+        </div>
+      </div>
+      <div class="stat-card stat-pink">
+        <div class="stat-icon">🆕</div>
+        <div class="stat-info">
+          <div class="stat-value" id="stat-baru">—</div>
+          <div class="stat-label">Entri Hari Ini</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="dashboard-row">
+      <div class="card">
+        <div class="card-header">
+          <h3>📊 Koleksi Per Tahun Terbit</h3>
+        </div>
+        <div class="card-body">
+          <div id="chart-tahun" class="bar-chart"></div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-header">
+          <h3>⚡ Aksi Cepat</h3>
+        </div>
+        <div class="card-body quick-actions">
+          <button class="quick-btn" onclick="navigateTo('buku-induk'); setTimeout(()=>document.getElementById('btn-tambah-buku').click(),300)">
+            <span>➕</span> Tambah Buku Baru
+          </button>
+          <button class="quick-btn" onclick="doExportExcel()">
+            <span>📊</span> Export Excel
+          </button>
+          <button class="quick-btn" onclick="doExportPDF()">
+            <span>📄</span> Export PDF
+          </button>
+          <button class="quick-btn" onclick="navigateTo('kolom')">
+            <span>🎨</span> Kustomisasi Kolom
+          </button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ───── PAGE: BUKU INDUK ───── -->
+  <section class="page hidden" id="page-buku-induk">
+    <!-- Toolbar -->
+    <div class="toolbar">
+      <div class="toolbar-left">
+        <button class="btn btn-primary" id="btn-tambah-buku">➕ Tambah Buku</button>
+        <div class="search-box">
+          <span class="search-icon">🔍</span>
+          <input type="text" id="input-search" placeholder="Cari judul, pengarang, ISBN, nomor induk..." />
+        </div>
+      </div>
+      <div class="toolbar-right">
+        <select id="select-limit" class="select-sm">
+          <option value="25">25 / hal</option>
+          <option value="50" selected>50 / hal</option>
+          <option value="100">100 / hal</option>
+        </select>
+        <button class="btn btn-success" id="btn-export-excel">📊 Excel</button>
+        <button class="btn btn-danger"  id="btn-export-pdf">📄 PDF</button>
+        <button class="btn btn-warning" id="btn-cetak-kartu">🖨️ Kartu Buku</button>
+        <button class="btn btn-primary" id="btn-cetak-label">🏷️ Cetak Label</button>
+        <span id="selected-count-label" style="font-size:12px;color:var(--primary);font-weight:700;margin-left:8px;"></span>
+      </div>
+    </div>
+
+
+
+    <!-- Table container -->
+    <div class="table-wrapper" id="table-wrapper">
+      <div id="table-loading" class="table-loading">
+        <div class="spinner"></div>
+        <span>Memuat data...</span>
+      </div>
+      <div class="spreadsheet-container" id="spreadsheet-container">
+        <table class="spreadsheet" id="spreadsheet-table">
+          <thead id="spreadsheet-head"></thead>
+          <tbody id="spreadsheet-body"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Pagination -->
+    <div class="pagination-bar" id="pagination-bar">
+      <div class="pagination-info" id="pagination-info"></div>
+      <div class="pagination-controls" id="pagination-controls"></div>
+    </div>
+  </section>
+
+  <!-- ───── PAGE: KOLOM ───── -->
+  <section class="page hidden" id="page-kolom">
+    <div class="card">
+      <div class="card-header">
+        <h3>🎨 Kustomisasi Kolom Tabel</h3>
+        <button class="btn btn-primary" id="btn-tambah-kolom-custom">➕ Tambah Kolom Custom</button>
+      </div>
+      <div class="card-body">
+        <p class="text-muted">Drag &amp; drop untuk mengatur urutan kolom. Klik warna untuk mengubah tampilan header.</p>
+        <div class="column-list" id="column-list">
+          <div class="table-loading"><div class="spinner"></div><span>Memuat kolom...</span></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ───── PAGE: TEMPLATE ───── -->
+  <section class="page hidden" id="page-template">
+    <div class="card">
+      <div class="card-header">
+        <h3>📋 Template Buku Induk</h3>
+        <button class="btn btn-primary" id="btn-tambah-template">➕ Template Baru</button>
+      </div>
+      <div class="card-body">
+        <div class="template-grid" id="template-list"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ───── PAGE: PENGATURAN ───── -->
+  <section class="page hidden" id="page-pengaturan">
+    <div class="card">
+      <div class="card-header">
+        <h3>⚙️ Pengaturan Sistem</h3>
+      </div>
+      <div class="card-body">
+        <form id="form-settings" class="settings-form">
+          <div class="settings-group">
+            <h4>Format Nomor Inventaris / Induk</h4>
+            <div class="format-variables">
+              <span class="fv-label">Variabel tersedia:</span>
+              <code class="fv-tag" onclick="insertVar('{NO}')">{NO}</code>
+              <code class="fv-tag" onclick="insertVar('{UNIT}')">{UNIT}</code>
+              <code class="fv-tag" onclick="insertVar('{BULAN_ROMAWI}')">{BULAN_ROMAWI}</code>
+              <code class="fv-tag" onclick="insertVar('{BULAN}')">{BULAN}</code>
+              <code class="fv-tag" onclick="insertVar('{TAHUN}')">{TAHUN}</code>
+            </div>
+            <div class="form-row">
+              <div class="form-group" style="flex:2">
+                <label>Format Nomor Induk</label>
+                <input type="text" id="s-format" name="nomor_induk_format" placeholder="{NO}/{UNIT}/{BULAN_ROMAWI}/{TAHUN}" />
+                <small>Contoh hasil: <strong>66384/UPT-Lib-BP/IV/2025</strong></small>
+              </div>
+              <div class="form-group">
+                <label>Kode Unit / Institusi</label>
+                <input type="text" id="s-unit" name="nomor_induk_unit" placeholder="UPT-Lib-BP" />
+                <small>Nilai untuk {UNIT}</small>
+              </div>
+              <div class="form-group" style="flex:0;min-width:110px">
+                <label>Padding Angka</label>
+                <input type="number" id="s-padding" name="nomor_induk_padding" min="1" max="9" />
+                <small>Panjang {NO}</small>
+              </div>
+            </div>
+            <div class="format-preview-box">
+              <div class="preview-label">Nomor berikutnya:</div>
+              <div class="format-preview" id="format-preview">Memuat...</div>
+            </div>
+          </div>
+
+          <div class="settings-group">
+            <h4>Informasi Institusi</h4>
+            <div class="form-row">
+              <div class="form-group form-group-full">
+                <label>Nama Aplikasi</label>
+                <input type="text" id="s-appname" name="app_name" placeholder="Sistem Buku Induk Perpustakaan" />
+              </div>
+              <div class="form-group form-group-full">
+                <label>Nama Institusi</label>
+                <input type="text" id="s-institution" name="app_institution" placeholder="Nama Perpustakaan / Institusi" />
+              </div>
+            </div>
+          </div>
+
+          <div class="form-actions">
+            <button type="submit" class="btn btn-primary">💾 Simpan Pengaturan</button>
+            <button type="button" class="btn btn-outline" id="btn-reset-counter">↺ Reset Counter ke 0</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </section>
+
+
+</main>
+
+<!-- ═══════════════════════════════════════════════════════
+     MODAL: FORM TAMBAH / EDIT BUKU
+════════════════════════════════════════════════════════ -->
+<div class="modal-backdrop hidden" id="modal-buku">
+  <div class="modal modal-xl">
+    <div class="modal-header">
+      <h2 id="modal-buku-title">Tambah Buku Baru</h2>
+      <button class="modal-close" id="modal-buku-close">✕</button>
+    </div>
+    <div class="modal-body">
+      <form id="form-buku" autocomplete="off">
+        <input type="hidden" id="f-id" />
+
+        <div class="form-tabs">
+          <button type="button" class="tab-btn active" data-tab="metadata">📖 Metadata Buku</button>
+          <button type="button" class="tab-btn" data-tab="klasifikasi">🔢 Klasifikasi</button>
+          <button type="button" class="tab-btn" data-tab="eksemplar">📦 Eksemplar</button>
+        </div>
+
+        <!-- Tab: Metadata -->
+        <div class="tab-content active" id="tab-metadata">
+          <div class="form-grid">
+            <div class="form-group form-group-full">
+              <label>Judul <span class="required">*</span></label>
+              <input type="text" id="f-judul" name="judul" required placeholder="Masukkan judul buku" />
+            </div>
+            <div class="form-group">
+              <label>
+                Nomor Induk
+                <span class="badge-auto" id="nomor-induk-badge">⚡ Auto-generate</span>
+              </label>
+              <input type="text" id="f-nomor-induk" name="nomor_induk" placeholder="Kosongkan untuk generate otomatis" />
+              <small>Isi manual untuk override nomor otomatis</small>
+            </div>
+            <div class="form-group">
+              <label>Pengarang</label>
+              <div class="input-with-addon">
+                <input type="text" id="f-pengarang" name="pengarang" placeholder="Nama pengarang" />
+                <button type="button" class="btn-addon" id="btn-cutter" title="Generate Cutter">✂️</button>
+              </div>
+              <small>Cutter: <strong id="cutter-preview">—</strong></small>
+            </div>
+            <div class="form-group">
+              <label>Penanggung Jawab</label>
+              <input type="text" id="f-pj" name="penanggung_jawab" placeholder="Editor, penyunting, dll" />
+            </div>
+            <div class="form-group">
+              <label>Penerbit</label>
+              <input type="text" id="f-penerbit" name="penerbit" placeholder="Nama penerbit" />
+            </div>
+            <div class="form-group">
+              <label>Kota Terbit</label>
+              <input type="text" id="f-kota" name="kota_terbit" placeholder="Jakarta, Bandung, dll" />
+            </div>
+            <div class="form-group">
+              <label>Tahun Terbit</label>
+              <input type="text" id="f-tahun" name="tahun_terbit" placeholder="2024" maxlength="4" />
+            </div>
+            <div class="form-group">
+              <label>Edisi / Cetakan</label>
+              <input type="text" id="f-edisi" name="edisi_cetakan" placeholder="Cet. 1, Ed. 3, dll" />
+            </div>
+            <div class="form-group">
+              <label>ISBN</label>
+              <input type="text" id="f-isbn" name="isbn" placeholder="978-xxx-xxx-xxx-x" />
+            </div>
+            <div class="form-group form-group-full">
+              <label>Deskripsi Fisik</label>
+              <input type="text" id="f-fisik" name="fisik" placeholder="xii, 250 hlm.; 21 cm" />
+            </div>
+            <div class="form-group">
+              <label>Sumber Perolehan</label>
+              <select id="f-sumber" name="sumber_perolehan">
+                <option value="">-- Pilih --</option>
+                <option>Pembelian</option>
+                <option>Hibah</option>
+                <option>Sumbangan</option>
+                <option>Hadiah</option>
+                <option>Tukar Menukar</option>
+                <option>Deposit</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>Tanggal Pengolahan</label>
+              <input type="date" id="f-tgl-olah" name="tanggal_olah" />
+            </div>
+          </div>
+        </div>
+
+
+        <!-- Tab: Klasifikasi -->
+        <div class="tab-content hidden" id="tab-klasifikasi">
+          <div class="form-grid">
+            <div class="form-group">
+              <label>Subjek</label>
+              <div class="input-with-addon">
+                <input type="text" id="f-subjek" name="subjek" placeholder="Pemrograman; Node.js; Web" />
+                <button type="button" class="btn-addon" id="btn-suggest-ddc" title="Auto-suggest Klasifikasi DDC dari subjek">✨ DDC</button>
+              </div>
+              <small>Pisahkan dengan titik koma. Klik <strong>✨ DDC</strong> untuk generate klasifikasi otomatis.</small>
+            </div>
+            <div class="form-group">
+              <label>Klasifikasi DDC</label>
+              <div class="input-with-addon" style="position:relative">
+                <input type="text" id="f-klasifikasi" name="klasifikasi" placeholder="005.133" autocomplete="off" />
+                <div class="ddc-dropdown hidden" id="ddc-dropdown"></div>
+              </div>
+              <small id="ddc-hint" style="color:var(--success)"></small>
+            </div>
+            <div class="form-group form-group-full">
+              <label>Call Number</label>
+              <div class="input-with-addon">
+                <textarea id="f-call-number" name="call_number" rows="3" placeholder="Akan di-generate otomatis"></textarea>
+                <button type="button" class="btn-addon" id="btn-gen-call" title="Generate Call Number">🔄</button>
+              </div>
+              <small>Format: Klasifikasi / Cutter / Huruf judul</small>
+            </div>
+          </div>
+        </div>
+
+
+        <!-- Tab: Eksemplar -->
+        <div class="tab-content hidden" id="tab-eksemplar">
+          <div class="form-grid">
+            <div class="form-group">
+              <label>Jumlah Eksemplar</label>
+              <input type="number" id="f-eks" name="jumlah_eksemplar" value="1" min="1" max="999" />
+              <small>Sistem akan membuat nomor induk berbeda untuk setiap eksemplar</small>
+            </div>
+          </div>
+          <div class="eksemplar-info">
+            <div class="info-box">
+              <strong>📌 Cara kerja multi-eksemplar:</strong>
+              <ul>
+                <li>Setiap eksemplar mendapat <strong>nomor induk unik</strong></li>
+                <li>Setiap eksemplar mendapat <strong>barcode berbeda</strong></li>
+                <li>Counter nomor induk akan bertambah otomatis</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+        <div id="custom-fields-container"></div>
+      </form>
+
+    </div>
+    <div class="modal-footer">
+      <button type="button" class="btn btn-outline" id="modal-buku-cancel">Batal</button>
+      <button type="submit" form="form-buku" class="btn btn-primary" id="btn-save-buku">💾 Simpan Buku</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════
+     MODAL: TAMBAH KOLOM CUSTOM
+════════════════════════════════════════════════════════ -->
+<div class="modal-backdrop hidden" id="modal-kolom">
+  <div class="modal">
+    <div class="modal-header">
+      <h2>➕ Tambah Kolom Custom</h2>
+      <button class="modal-close" id="modal-kolom-close">✕</button>
+    </div>
+    <div class="modal-body">
+      <form id="form-kolom">
+        <div class="form-group">
+          <label>Nama Field (tanpa spasi)</label>
+          <input type="text" id="kol-field" name="field_name" placeholder="kondisi_buku" required pattern="[a-z_]+" />
+          <small>Huruf kecil dan underscore saja</small>
+        </div>
+        <div class="form-group">
+          <label>Label Tampilan</label>
+          <input type="text" id="kol-label" name="label" placeholder="Kondisi Buku" required />
+        </div>
+        <div class="form-group">
+          <label>Tipe Data</label>
+          <select id="kol-type" name="data_type">
+            <option value="text">Teks</option>
+            <option value="number">Angka</option>
+            <option value="date">Tanggal</option>
+            <option value="select">Pilihan</option>
+          </select>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Warna Header</label>
+            <input type="color" id="kol-bg" name="bg_color" value="#4A90D9" />
+          </div>
+          <div class="form-group">
+            <label>Warna Teks</label>
+            <input type="color" id="kol-fg" name="text_color" value="#FFFFFF" />
+          </div>
+          <div class="form-group">
+            <label>Lebar (px)</label>
+            <input type="number" id="kol-width" name="width" value="150" min="60" max="500" />
+          </div>
+        </div>
+      </form>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" id="modal-kolom-cancel">Batal</button>
+      <button type="submit" form="form-kolom" class="btn btn-primary">✅ Tambah Kolom</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════
+     MODAL: TEMPLATE
+════════════════════════════════════════════════════════ -->
+<div class="modal-backdrop hidden" id="modal-template">
+  <div class="modal">
+    <div class="modal-header">
+      <h2>📋 Template Baru</h2>
+      <button class="modal-close" id="modal-template-close">✕</button>
+    </div>
+    <div class="modal-body">
+      <form id="form-template">
+        <div class="form-group">
+          <label>Nama Template</label>
+          <input type="text" id="tpl-nama" name="nama" required placeholder="Buku Induk Umum" />
+        </div>
+        <div class="form-group">
+          <label>Deskripsi</label>
+          <textarea id="tpl-desc" name="deskripsi" rows="2" placeholder="Deskripsi singkat template"></textarea>
+        </div>
+        <div class="form-group">
+          <label>Prefix Nomor Induk</label>
+          <input type="text" id="tpl-prefix" placeholder="UMUM" />
+        </div>
+      </form>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" id="modal-template-cancel">Batal</button>
+      <button type="submit" form="form-template" class="btn btn-primary">✅ Simpan Template</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════
+     MODAL: OPSI CETAK KARTU
+════════════════════════════════════════════════════════ -->
+<div class="modal-backdrop hidden" id="modal-cetak-kartu">
+  <div class="modal modal-sm">
+    <div class="modal-header">
+      <h2>🖨️ Opsi Cetak Kartu</h2>
+      <button class="modal-close" id="modal-cetak-kartu-close">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group">
+        <label>Ukuran Kertas</label>
+        <select id="sel-paper-size" class="select-full">
+          <option value="a4" selected>A4 (210 x 297 mm)</option>
+          <option value="f4">F4 / Folio (215 x 330 mm)</option>
+        </select>
+      </div>
+      <div class="info-box" style="margin-top: 15px; font-size: 12px;">
+        Layout: <strong>6 Kartu per Baris</strong><br>
+        Pastikan margin printer diatur ke <em>Minimum</em> atau <em>None</em> saat mencetak.
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" id="modal-cetak-kartu-cancel">Batal</button>
+      <button class="btn btn-primary" id="btn-do-cetak-kartu">🚀 Lanjut Cetak</button>
+    </div>
+  </div>
+</div>
+
+<!-- Toast Notification -->
+
+<div class="toast-container" id="toast-container"></div>
+
+<script src="/js/app.js"></script>
+<!-- MODAL: CETAK LABEL -->
+<div class="modal-backdrop hidden" id="modal-cetak-label">
+  <div class="modal" style="max-width:400px">
+    <div class="modal-header">
+      <h2>🏷️ Cetak Label Buku</h2>
+      <button class="modal-close" id="modal-cetak-label-close">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group">
+        <label>Ukuran Kertas</label>
+        <select id="sel-label-paper-size" class="select-full">
+          <option value="a4">Kertas A4 (Landscape)</option>
+          <option value="f4">Kertas F4 (Landscape)</option>
+        </select>
+      </div>
+      <p style="font-size:12px; color:#666; margin-top:10px;">
+        Layout: <strong>8 Label per Halaman (2 Kolom x 4 Baris)</strong>.<br>
+        Sudah termasuk QR Code otomatis untuk setiap nomor induk.
+      </p>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" id="modal-cetak-label-cancel">Batal</button>
+      <button class="btn btn-primary" id="btn-do-cetak-label">🏷️ Mulai Cetak</button>
+    </div>
+  </div>
+</div>
+
+</body>
+</html>
+
