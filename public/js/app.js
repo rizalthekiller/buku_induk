@@ -3,11 +3,12 @@
 // ── State ─────────────────────────────────────
 const state = {
   currentPage: 'dashboard',
-  books: [], meta: {}, columns: [], customColumns: [],
+  books: [], meta: {}, columns: [], customColumns: [], templates: [],
   sortBy: 'nomor_induk', sortDir: 'asc',
   search: '', page: 1, limit: 50,
   editingCell: null, dragSrc: null,
   selectedIds: new Set(),
+  currentImportFile: null,
 };
 
 // ── DOM helpers ───────────────────────────────
@@ -31,6 +32,12 @@ async function api(path, opts = {}) {
     ...opts,
     body: opts.body ? JSON.stringify(opts.body) : undefined,
   });
+  
+  if (res.status === 401) {
+    window.location.href = '/login.html';
+    return { success: false, message: 'Unauthorized' };
+  }
+  
   return res.json();
 }
 
@@ -47,13 +54,21 @@ function navigateTo(page) {
   document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
   const pg = $(`page-${page}`); if (pg) show(pg);
   const nav = $(`nav-${page}`); if (nav) nav.classList.add('active');
-  const titles = { dashboard:'Dashboard','buku-induk':'Buku Induk',kolom:'Kustomisasi Kolom',template:'Template',pengaturan:'Pengaturan' };
+  const titles = { 
+    dashboard: 'Dashboard', 
+    'buku-induk': 'Buku Induk', 
+    kolom: 'Kustomisasi Kolom', 
+    template: 'Template', 
+    user: 'Manajemen User',
+    pengaturan: 'Pengaturan' 
+  };
   $('page-title').textContent = titles[page] || page;
   state.currentPage = page;
   if (page === 'dashboard')  loadDashboard();
   if (page === 'buku-induk') loadBooks();
   if (page === 'kolom')      loadColumns();
   if (page === 'template')   loadTemplates();
+  if (page === 'user')       loadUsers();
   if (page === 'pengaturan') loadSettings();
 }
 
@@ -210,6 +225,22 @@ function updateSelectedCounter() {
   const count = state.selectedIds.size;
   const el = $('selected-count-label');
   if (el) el.textContent = count > 0 ? `(${count} terpilih)` : '';
+  
+  const btnHapus = $('btn-hapus-terpilih');
+  const btnAi    = $('btn-ai-terpilih');
+  const btnBatal = $('btn-batal-pilih');
+  
+  if (btnHapus) btnHapus.style.display = count > 0 ? 'inline-flex' : 'none';
+  if (btnAi)    btnAi.style.display    = count > 0 ? 'inline-flex' : 'none';
+  if (btnBatal) btnBatal.style.display = count > 0 ? 'inline-flex' : 'none';
+}
+
+function clearSelection() {
+  state.selectedIds.clear();
+  const headCheck = $('check-all');
+  if (headCheck) headCheck.checked = false;
+  renderTable();
+  updateSelectedCounter();
 }
 
 
@@ -261,8 +292,112 @@ async function deleteBook(id) {
   const r = await api(`/books/${id}`, { method:'DELETE' });
   if (r.success) { toast('Buku dihapus','success'); loadBooks(); } else toast(r.message,'error');
 }
-function doExportExcel() { window.location='/api/export/excel'; }
-function doExportPDF()   { window.location='/api/export/pdf'; }
+
+async function bulkDeleteBooks() {
+  const count = state.selectedIds.size;
+  if (count === 0) return;
+  if (!confirm(`Hapus ${count} buku yang terpilih? Tindakan ini tidak dapat dibatalkan.`)) return;
+  
+  const ids = Array.from(state.selectedIds);
+  const r = await api('/books/bulk-delete', { method:'POST', body: { ids } });
+  
+  if (r.success) {
+    toast(r.message, 'success');
+    state.selectedIds.clear();
+    updateSelectedCounter();
+    loadBooks();
+  } else {
+    toast(r.message, 'error');
+  }
+}
+
+async function bulkAiEnrich() {
+  if (!state.selectedIds.size) return;
+  const count = state.selectedIds.size;
+  if (!confirm(`Lengkapi metadata ${count} buku menggunakan AI?`)) return;
+
+  const btn = $('btn-ai-terpilih');
+  const oldText = btn.textContent;
+  btn.disabled = true; btn.textContent = '⏳ Memproses...';
+  
+  try {
+    const r = await api('/books/bulk-ai-enrich', {
+      method: 'POST',
+      body: { ids: Array.from(state.selectedIds) }
+    });
+
+    if (r.success) {
+      toast(`Selesai! Berhasil melengkapi ${r.data.success} buku.`, 'success');
+      state.selectedIds.clear();
+      updateSelectedCounter();
+      loadBooks();
+    } else {
+      toast(r.message, 'error');
+    }
+  } catch (err) {
+    toast('Gagal memproses AI secara massal', 'error');
+  } finally {
+    btn.disabled = false; btn.textContent = oldText;
+  }
+}
+
+function doExportExcel() { 
+  const ids = Array.from(state.selectedIds).join(',');
+  window.location = '/api/export/excel' + (ids ? `?ids=${ids}` : ''); 
+}
+function doExportPDF()   { 
+  const ids = Array.from(state.selectedIds).join(',');
+  window.location = '/api/export/pdf' + (ids ? `?ids=${ids}` : ''); 
+}
+
+// ── AI Assist ────────────────────────────────
+async function aiAssistEnrich() {
+  const title = $('f-judul').value.trim();
+  if (!title) { toast('Isi judul buku terlebih dahulu', 'info'); return; }
+  const isbn  = $('f-isbn').value.trim();
+  
+  const btn = $('btn-ai-assist');
+  const originalText = btn.textContent;
+  btn.textContent = '⏳...'; btn.disabled = true;
+
+  try {
+    let url = `/books/ai-enrich?title=${encodeURIComponent(title)}`;
+    if (isbn) url += `&isbn=${encodeURIComponent(isbn)}`;
+    
+    const r = await api(url);
+    if (r.success) {
+      const data = r.data;
+      // Isi data jika field masih kosong
+      if (!$('f-pengarang').value) $('f-pengarang').value = data.pengarang || '';
+      if (!$('f-pj').value)        $('f-pj').value        = data.penanggung_jawab || '';
+      if (!$('f-penerbit').value)  $('f-penerbit').value  = data.penerbit || '';
+      if (!$('f-tahun').value)     $('f-tahun').value     = data.tahun_terbit || '';
+      if (!$('f-kota').value)      $('f-kota').value      = data.kota_terbit || '';
+      if (!$('f-edisi').value)     $('f-edisi').value     = data.edisi_cetakan || '';
+      if (!$('f-isbn').value)      $('f-isbn').value      = data.isbn || '';
+      if (!$('f-fisik').value)     $('f-fisik').value     = data.fisik || '';
+      if (!$('f-subjek').value)    $('f-subjek').value    = data.subjek || '';
+      if (!$('f-klasifikasi').value || $('f-klasifikasi').value === '000') {
+        $('f-klasifikasi').value = data.klasifikasi || '';
+      }
+      if (data.klasifikasi) {
+        $('ddc-hint').textContent = `✨ AI menyarankan DDC ${data.klasifikasi}`;
+        $('ddc-hint').style.color = 'var(--primary)';
+      }
+
+      // Generate cutter & call number otomatis dari data AI
+      updateCutterPreview();
+      generateCallNumber();
+      toast('Data buku berhasil dilengkapi oleh AI', 'success');
+    } else {
+      toast(r.message || 'AI gagal memberikan saran', 'error');
+    }
+  } catch (err) {
+    toast('Gagal menghubungi AI Assistant', 'error');
+  } finally {
+    btn.textContent = originalText; btn.disabled = false;
+  }
+}
 
 
 /* ─────────────────────────────────────────────── */
@@ -535,7 +670,8 @@ async function toggleColVisible(field, isCustom, visible) {
 async function toggleFreeze(field, isCustom) {
   const col = [...state.columns, ...state.customColumns].find(c => c.field_name === field);
   if (!col) return;
-  await api(`/columns/${field}`, { method: 'PUT', body: { is_frozen: !col.is_frozen } });
+  const endpoint = isCustom === 'true' ? `/columns/custom/${field}` : `/columns/${field}`;
+  await api(endpoint, { method: 'PUT', body: { is_frozen: !col.is_frozen } });
   toast(!col.is_frozen ? 'Kolom di-freeze' : 'Kolom di-unfreeze', 'success');
   loadColumns(); state.columns = [];
 }
@@ -544,7 +680,8 @@ function changeColColor(field, isCustom, swatchEl) {
   const inp = document.createElement('input'); inp.type = 'color';
   inp.value = swatchEl.style.background || '#4A90D9';
   inp.addEventListener('change', async () => {
-    await api(`/columns/${field}`, { method: 'PUT', body: { bg_color: inp.value } });
+    const endpoint = isCustom === 'true' ? `/columns/custom/${field}` : `/columns/${field}`;
+    await api(endpoint, { method: 'PUT', body: { bg_color: inp.value } });
     swatchEl.style.background = inp.value;
     toast('Warna kolom diperbarui', 'success');
     state.columns = [];
@@ -580,6 +717,7 @@ async function submitKolom(e) {
 async function loadTemplates() {
   const r = await api('/templates');
   if (!r.success) return;
+  state.templates = r.data;
   const icons = ['📚','📖','📗','📘','📙'];
   $('template-list').innerHTML = r.data.map((t, i) => `
     <div class="template-card">
@@ -593,7 +731,20 @@ async function loadTemplates() {
     </div>`).join('');
 }
 
-async function applyTemplate(id) { toast('Template diterapkan (fitur segera hadir)', 'info'); }
+async function applyTemplate(id) {
+  const t = state.templates.find(x => x.id == id);
+  if (!t) return;
+  
+  const prefix = t.config?.prefix;
+  if (prefix) {
+    await api('/settings', { method: 'PUT', body: { nomor_induk_unit: prefix } });
+    toast(`Template "${t.nama}" diterapkan. Kode unit diubah menjadi: ${prefix}`, 'success');
+    if (state.currentPage === 'pengaturan') loadSettings();
+    updateFormatPreview(); // Refresh preview in settings if visible
+  } else {
+    toast('Template tidak memiliki konfigurasi prefix', 'info');
+  }
+}
 
 async function deleteTemplate(id) {
   if (!confirm('Hapus template ini?')) return;
@@ -621,6 +772,7 @@ async function loadSettings() {
   $('s-format').value      = d.nomor_induk_format || '{NO}/{UNIT}/{BULAN_ROMAWI}/{TAHUN}';
   $('s-unit').value        = d.nomor_induk_unit   || 'UPT-Lib-BP';
   $('s-padding').value     = d.nomor_induk_padding || '5';
+  $('s-counter').value      = d.nomor_induk_counter || '0';
   $('s-appname').value     = d.app_name || '';
   $('s-institution').value = d.app_institution || '';
   updateFormatPreview();
@@ -630,11 +782,12 @@ async function updateFormatPreview() {
   const fmt     = $('s-format').value;
   const unit    = $('s-unit').value;
   const padding = $('s-padding').value;
+  const counter = $('s-counter').value;
   const el = $('format-preview');
-  if (!fmt) return;
-  const r = await fetch(`/api/nomor-preview?format=${encodeURIComponent(fmt)}&unit=${encodeURIComponent(unit)}&padding=${padding}`);
-  const json = await r.json();
-  if (json.success) el.textContent = json.preview;
+  if (!el) return;
+
+  const r = await api(`/nomor-preview?format=${encodeURIComponent(fmt)}&unit=${encodeURIComponent(unit)}&padding=${padding}&counter=${counter}`);
+  if (r.success) el.textContent = r.preview;
 }
 
 async function submitSettings(e) {
@@ -662,6 +815,95 @@ function insertVar(v) {
   updateFormatPreview();
 }
 
+// ── User Management ───────────────────────────
+async function loadUsers() {
+  const tbody = $('user-table-body');
+  tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;padding:20px">Memuat data...</td></tr>';
+  
+  const r = await api('/users');
+  if (!r.success) { toast('Gagal memuat user', 'error'); return; }
+  
+  if (r.data.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;padding:20px">Belum ada user</td></tr>';
+    return;
+  }
+  
+  tbody.innerHTML = r.data.map((u, i) => `
+    <tr>
+      <td class="text-center">${i + 1}</td>
+      <td>${u.name}</td>
+      <td>${u.email}</td>
+      <td>${new Date(u.createdAt).toLocaleString('id-ID')}</td>
+      <td class="text-center">
+        <button class="btn-cell btn-edit" onclick="openEditUserModal('${u.id}')" title="Edit user">✏️</button>
+        <button class="btn-cell btn-delete" onclick="deleteUser('${u.id}')" title="Hapus user">🗑️</button>
+      </td>
+    </tr>
+  `).join('');
+}
+
+function openAddUserModal() {
+  $('modal-user-title').textContent = 'Tambah User Baru';
+  $('form-user').reset();
+  $('usr-id').value = '';
+  $('usr-password').required = true;
+  show($('modal-user'));
+}
+
+async function openEditUserModal(id) {
+  const r = await api(`/users/${id}`);
+  if (!r.success) { toast('Gagal memuat data user', 'error'); return; }
+  const u = r.data;
+  
+  $('modal-user-title').textContent = 'Edit User';
+  $('usr-id').value = u.id;
+  $('usr-name').value = u.name;
+  $('usr-email').value = u.email;
+  $('usr-password').value = '';
+  $('usr-password').required = false; // password optional saat edit
+  show($('modal-user'));
+}
+
+async function submitUser(e) {
+  e.preventDefault();
+  const id = $('usr-id').value;
+  const body = {
+    name:     $('usr-name').value.trim(),
+    email:    $('usr-email').value.trim(),
+    password: $('usr-password').value.trim() || undefined,
+  };
+  
+  const btn = $('btn-save-user');
+  btn.disabled = true; btn.textContent = '⏳ Menyimpan...';
+  
+  try {
+    const r = id 
+      ? await api(`/users/${id}`, { method: 'PUT', body })
+      : await api('/users', { method: 'POST', body });
+      
+    if (r.success) {
+      toast(id ? 'User diperbarui' : 'User berhasil ditambahkan', 'success');
+      hide($('modal-user'));
+      loadUsers();
+    } else {
+      toast(r.message || 'Gagal menyimpan user', 'error');
+    }
+  } finally {
+    btn.disabled = false; btn.textContent = '✅ Simpan User';
+  }
+}
+
+async function deleteUser(id) {
+  if (!confirm('Hapus user ini?')) return;
+  const r = await api(`/users/${id}`, { method: 'DELETE' });
+  if (r.success) {
+    toast('User dihapus', 'success');
+    loadUsers();
+  } else {
+    toast(r.message, 'error');
+  }
+}
+
 // ── Event Bindings ────────────────────────────
 function bindEvents() {
   // Sidebar toggle
@@ -678,6 +920,13 @@ function bindEvents() {
     else if (state.currentPage === 'dashboard') loadDashboard();
   });
 
+  // User CRUD
+  $('btn-tambah-user')?.addEventListener('click', openAddUserModal);
+  $('modal-user-close')?.addEventListener('click', () => hide($('modal-user')));
+  $('modal-user-cancel')?.addEventListener('click', () => hide($('modal-user')));
+  $('form-user')?.addEventListener('submit', submitUser);
+  $('modal-user')?.addEventListener('click', e => { if (e.target === $('modal-user')) hide($('modal-user')); });
+
   // Buku CRUD
   $('btn-tambah-buku').addEventListener('click', openAddModal);
   $('modal-buku-close').addEventListener('click', closeModalBuku);
@@ -690,6 +939,7 @@ function bindEvents() {
   $('btn-cutter').addEventListener('click', updateCutterPreview);
   $('btn-gen-call').addEventListener('click', generateCallNumber);
   $('btn-suggest-ddc').addEventListener('click', suggestDDCFromSubject);
+  $('btn-ai-assist').addEventListener('click', aiAssistEnrich);
 
   // Badge nomor induk: kuning=auto, biru=manual
   $('f-nomor-induk').addEventListener('input', e => {
@@ -716,7 +966,93 @@ function bindEvents() {
   // Limit
   $('select-limit').addEventListener('change', e => { state.limit = parseInt(e.target.value); state.page = 1; loadBooks(); });
 
+  // Import Excel (2-Step)
+  $('btn-import-excel').addEventListener('click', () => $('input-import-file').click());
+  $('input-import-file').addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    state.currentImportFile = file;
+    
+    const formData = new FormData();
+    formData.append('file', file);
+    
+    toast('Menganalisis file...', 'info');
+    try {
+      const res = await fetch('/api/import/analyze', { method: 'POST', body: formData });
+      const r = await res.json();
+      if (r.success) {
+        showImportPreview(r.data);
+      } else {
+        toast(r.message, 'error');
+      }
+    } catch (err) {
+      toast('Gagal menganalisis file', 'error');
+    } finally {
+      e.target.value = '';
+    }
+  });
+
+  function showImportPreview(data) {
+    $('import-filename').textContent = data.fileName;
+    $('import-rows').textContent = data.totalRows;
+    
+    // Render Mappings
+    const mappingList = $('import-mapping-list');
+    mappingList.innerHTML = data.mappings.map(m => `
+      <div class="mapping-item">
+        <span class="m-header">${m.header}</span>
+        <span class="m-arrow">➔</span>
+        <span class="m-target">${m.target}</span>
+      </div>
+    `).join('');
+    
+    // Render Samples
+    const head = $('import-sample-head');
+    const body = $('import-sample-body');
+    const cols = data.mappings.map(m => m.target);
+    
+    head.innerHTML = '<tr>' + data.mappings.map(m => `<th>${m.target}</th>`).join('') + '</tr>';
+    body.innerHTML = data.samples.map(row => {
+      return '<tr>' + cols.map(c => `<td>${row[c] || ''}</td>`).join('') + '</tr>';
+    }).join('');
+    
+    show($('modal-import-preview'));
+  }
+
+  $('modal-import-preview-close').addEventListener('click', () => hide($('modal-import-preview')));
+  $('modal-import-preview-cancel').addEventListener('click', () => hide($('modal-import-preview')));
+  
+  $('btn-confirm-import').addEventListener('click', async () => {
+    if (!state.currentImportFile) return;
+    
+    const btn = $('btn-confirm-import');
+    btn.disabled = true; btn.textContent = '⏳ Mengimpor...';
+    
+    const formData = new FormData();
+    formData.append('file', state.currentImportFile);
+    
+    try {
+      const res = await fetch('/api/import/excel', { method: 'POST', body: formData });
+      const r = await res.json();
+      if (r.success) {
+        toast(r.message, 'success');
+        hide($('modal-import-preview'));
+        loadBooks(); loadDashboard();
+      } else {
+        toast(r.message, 'error');
+      }
+    } catch (err) {
+      toast('Gagal mengimpor data', 'error');
+    } finally {
+      btn.disabled = false; btn.textContent = '🚀 Mulai Import Sekarang';
+      state.currentImportFile = null;
+    }
+  });
+
   // Export & Print
+  $('btn-hapus-terpilih').addEventListener('click', bulkDeleteBooks);
+  $('btn-ai-terpilih').addEventListener('click', bulkAiEnrich);
+  $('btn-batal-pilih').addEventListener('click', clearSelection);
   $('btn-export-excel').addEventListener('click', doExportExcel);
   $('btn-export-pdf').addEventListener('click', doExportPDF);
   $('btn-cetak-kartu').addEventListener('click', () => show($('modal-cetak-kartu')));
@@ -747,6 +1083,20 @@ function bindEvents() {
     hide($('modal-cetak-label'));
   });
 
+  // Spine labels (Nomor Punggung)
+  $('btn-cetak-punggung').addEventListener('click', () => {
+    if (state.selectedIds.size === 0) { toast('Pilih buku yang ingin dicetak nomor punggungnya', 'info'); return; }
+    show($('modal-cetak-punggung'));
+  });
+  $('modal-cetak-punggung-close').addEventListener('click', () => hide($('modal-cetak-punggung')));
+  $('modal-cetak-punggung-cancel').addEventListener('click', () => hide($('modal-cetak-punggung')));
+  $('btn-do-cetak-punggung').addEventListener('click', () => {
+    const paper = $('sel-spine-paper-size').value;
+    const ids = Array.from(state.selectedIds).join(',');
+    window.open(`/api/print/book-spines?paper=${paper}&ids=${ids}`, '_blank');
+    hide($('modal-cetak-punggung'));
+  });
+
 
   // Kolom modal
   $('btn-tambah-kolom-custom').addEventListener('click', () => { $('form-kolom').reset(); show($('modal-kolom')); });
@@ -762,7 +1112,7 @@ function bindEvents() {
 
   // Settings
   $('form-settings').addEventListener('submit', submitSettings);
-  ['s-format','s-unit','s-padding'].forEach(id => {
+  ['s-format','s-unit','s-padding','s-counter'].forEach(id => {
     const el = $(id); if (el) el.addEventListener('input', updateFormatPreview);
   });
   $('btn-reset-counter').addEventListener('click', async () => {

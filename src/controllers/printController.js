@@ -338,4 +338,233 @@ function generateLabelHTML(books, paper) {
   `;
 }
 
-module.exports = { renderBookCards, renderBookLabels };
+async function renderBookSpines(req, res) {
+  try {
+    const { ids, paper = 'a4' } = req.query;
+    
+    let query = `
+      SELECT e.nomor_induk, b.judul, b.pengarang, b.klasifikasi, b.call_number
+      FROM exemplars e
+      JOIN books b ON e.book_id = b.id
+    `;
+    let params = [];
+    if (ids) {
+      const idList = ids.split(',');
+      query += ' WHERE b.id = ANY($1)';
+      params = [idList];
+    }
+    query += ' ORDER BY e.nomor_induk ASC';
+    
+    const result = await pool.query(query, params);
+    const books = result.rows;
+
+    const html = generateSpineHTML(books, paper);
+    res.send(html);
+  } catch (err) {
+    console.error(err);
+    res.status(500).send('Error generating spine labels page');
+  }
+}
+
+function generateSpineHTML(books, paper) {
+  const isF4 = paper === 'f4';
+  const paperClass = isF4 ? 'paper-f4' : 'paper-a4';
+  const cols = 5;
+  const rows = isF4 ? 6 : 5;
+  const labelsPerPage = cols * rows; // A4=25, F4=30
+  
+  let pagesHtml = '';
+  for (let i = 0; i < books.length; i += labelsPerPage) {
+    const pageBooks = books.slice(i, i + labelsPerPage);
+    const labelsHtml = pageBooks.map(book => {
+      // Parse call number lines
+      const callLines = (book.call_number || '').split('\n').filter(l => l.trim());
+      if (callLines.length === 0 && book.klasifikasi) {
+        callLines.push(book.klasifikasi);
+        // Tambah 3 huruf pertama pengarang sebagai cutter
+        if (book.pengarang) {
+          callLines.push(book.pengarang.substring(0, 3).toUpperCase());
+        }
+        // Tambah huruf pertama judul (lowercase)
+        if (book.judul) {
+          callLines.push(book.judul.charAt(0).toLowerCase());
+        }
+      }
+      
+      // Ambil nomor pendek dari nomor_induk (angka saja)
+      const nomorFull = book.nomor_induk || '';
+      const nomorShort = nomorFull.split('/')[0].replace(/^0+/, '') || nomorFull;
+      
+      return `
+        <div class="spine-card">
+          <div class="spine-header">
+            <div class="logo-box">
+              <img src="/img/logo_uinsi.png" onerror="this.style.display='none'" alt="Logo">
+            </div>
+            <div class="header-text">
+              <div class="h-perpus">PERPUSTAKAAN</div>
+              <div class="h-uinsi">UINSI SAMARINDA</div>
+            </div>
+          </div>
+          <div class="spine-body">
+            <div class="call-area">
+              ${callLines.map(line => `<div class="call-line">${line}</div>`).join('')}
+            </div>
+            <div class="reg-number">${nomorShort}</div>
+          </div>
+        </div>
+      `;
+    }).join('');
+    
+    pagesHtml += `
+      <div class="page ${paperClass}">
+        ${labelsHtml}
+      </div>`;
+  }
+
+  return `
+    <!DOCTYPE html>
+    <html lang="id">
+    <head>
+      <meta charset="UTF-8">
+      <title>Cetak Nomor Punggung</title>
+      <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { background: #ddd; font-family: Arial, Helvetica, sans-serif; }
+        
+        .page {
+          background: white;
+          margin: 8mm auto;
+          display: grid;
+          grid-template-columns: repeat(${cols}, 35mm);
+          grid-template-rows: repeat(${rows}, 45mm);
+          gap: 2mm;
+          justify-content: center;
+          align-content: center;
+          page-break-after: always;
+          box-shadow: 0 2px 12px rgba(0,0,0,0.15);
+          overflow: hidden;
+        }
+        .paper-a4 { width: 210mm; height: 297mm; padding: 10mm 8mm; }
+        .paper-f4 { width: 215mm; height: 330mm; padding: 10mm 8mm; }
+
+        /* ── Kartu Punggung ── */
+        .spine-card {
+          border: 1px solid #000;
+          width: 35mm;
+          height: 45mm;
+          display: flex;
+          flex-direction: column;
+          background: #fff;
+          overflow: hidden;
+        }
+
+        /* ── Header: Logo + Teks ── */
+        .spine-header {
+          display: flex;
+          align-items: center;
+          gap: 1mm;
+          padding: 1.5mm 1.5mm 1mm 1.5mm;
+          border-bottom: 1px solid #000;
+          min-height: 11mm;
+          max-height: 11mm;
+        }
+
+        .logo-box {
+          width: 8mm;
+          height: 8mm;
+          flex-shrink: 0;
+        }
+        .logo-box img {
+          width: 100%;
+          height: 100%;
+          object-fit: contain;
+        }
+
+        .header-text {
+          flex: 1;
+          text-align: center;
+          line-height: 1.15;
+        }
+        .h-perpus {
+          font-size: 6.5pt;
+          font-weight: bold;
+          letter-spacing: 0.3px;
+        }
+        .h-uinsi {
+          font-size: 6.5pt;
+          font-weight: bold;
+        }
+
+        /* ── Body: Call Number + Nomor ── */
+        .spine-body {
+          flex: 1;
+          display: flex;
+          flex-direction: column;
+          position: relative;
+          padding: 1mm 1.5mm 1.5mm 1.5mm;
+        }
+
+        .call-area {
+          flex: 1;
+          display: flex;
+          flex-direction: column;
+          justify-content: center;
+          align-items: center;
+          text-align: center;
+          gap: 0.3mm;
+        }
+
+        .call-line {
+          font-size: 10pt;
+          font-weight: bold;
+          line-height: 1.25;
+          color: #000;
+        }
+
+        .reg-number {
+          position: absolute;
+          bottom: 1mm;
+          right: 1.5mm;
+          font-size: 7pt;
+          color: #000;
+        }
+
+        /* ── Print ── */
+        @media print {
+          @page { size: portrait; margin: 0; }
+          body { background: none; }
+          .page { margin: 0; box-shadow: none; }
+          .no-print { display: none !important; }
+        }
+
+        /* ── Controls ── */
+        .controls {
+          position: fixed; top: 15px; right: 15px; background: #fff;
+          padding: 12px 16px; border-radius: 8px;
+          box-shadow: 0 4px 20px rgba(0,0,0,0.25);
+          z-index: 1000; display: flex; align-items: center; gap: 8px;
+        }
+        .info-text { font-size: 12px; color: #555; margin-right: 8px; line-height: 1.3; }
+        .info-text strong { color: #111; }
+        .btn { padding: 8px 18px; border-radius: 6px; cursor: pointer; font-weight: 600; border: none; font-size: 13px; }
+        .btn-print { background: #10b981; color: white; }
+        .btn-close { background: #ef4444; color: white; }
+      </style>
+    </head>
+    <body>
+      <div class="controls no-print">
+        <div class="info-text">
+          Layout: <strong>${cols}×${rows} = ${labelsPerPage} label/halaman</strong><br>
+          Total: <strong>${books.length} label</strong> · ${Math.ceil(books.length / labelsPerPage)} halaman
+        </div>
+        <button class="btn btn-print" onclick="window.print()">🖨️ Cetak</button>
+        <button class="btn btn-close" onclick="window.close()">✕ Tutup</button>
+      </div>
+      ${pagesHtml}
+    </body>
+    </html>
+  `;
+}
+
+module.exports = { renderBookCards, renderBookLabels, renderBookSpines };

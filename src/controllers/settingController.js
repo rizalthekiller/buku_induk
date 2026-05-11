@@ -103,7 +103,7 @@ async function previewNomor(req, res) {
     const format  = req.query.format  || s['nomor_induk_format']  || '{NO}/{UNIT}/{BULAN_ROMAWI}/{TAHUN}';
     const unit    = req.query.unit    || s['nomor_induk_unit']    || 'UPT-Lib-BP';
     const padding = parseInt(req.query.padding || s['nomor_induk_padding']) || 5;
-    const counter = parseInt(s['nomor_induk_counter'] || '0') + 1;
+    const counter = parseInt(req.query.counter || s['nomor_induk_counter'] || '0') + 1;
 
     const now   = new Date();
     const tahun = now.getFullYear();

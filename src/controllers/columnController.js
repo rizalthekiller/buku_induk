@@ -89,6 +89,39 @@ async function addCustomColumn(req, res) {
   }
 }
 
+// PUT /api/columns/custom/:field_name
+async function updateCustomColumn(req, res) {
+  try {
+    const { field_name } = req.params;
+    const { bg_color, text_color, width, order_no, is_visible, is_frozen, label } = req.body;
+
+    const sets = [];
+    const values = [];
+    let idx = 1;
+
+    if (bg_color !== undefined) { sets.push(`bg_color = $${idx++}`); values.push(bg_color); }
+    if (text_color !== undefined) { sets.push(`text_color = $${idx++}`); values.push(text_color); }
+    if (width !== undefined) { sets.push(`width = $${idx++}`); values.push(width); }
+    if (order_no !== undefined) { sets.push(`order_no = $${idx++}`); values.push(order_no); }
+    if (is_visible !== undefined) { sets.push(`is_visible = $${idx++}`); values.push(is_visible); }
+    if (is_frozen !== undefined) { sets.push(`is_frozen = $${idx++}`); values.push(is_frozen); }
+    if (label !== undefined) { sets.push(`label = $${idx++}`); values.push(label); }
+
+    if (!sets.length) return res.status(400).json({ success: false, message: 'Tidak ada yang diubah' });
+
+    values.push(field_name);
+    const result = await pool.query(
+      `UPDATE custom_columns SET ${sets.join(', ')} WHERE field_name = $${idx} RETURNING *`,
+      values
+    );
+
+    if (!result.rows.length) return res.status(404).json({ success: false, message: 'Kolom custom tidak ditemukan' });
+    res.json({ success: true, data: result.rows[0] });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+}
+
 // DELETE /api/columns/custom/:field_name
 async function deleteCustomColumn(req, res) {
   try {
@@ -100,4 +133,7 @@ async function deleteCustomColumn(req, res) {
   }
 }
 
-module.exports = { getColumns, updateColumnStyle, updateColumnOrder, addCustomColumn, deleteCustomColumn };
+module.exports = { 
+  getColumns, updateColumnStyle, updateColumnOrder, 
+  addCustomColumn, updateCustomColumn, deleteCustomColumn 
+};

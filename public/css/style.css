@@ -266,3 +266,25 @@ input:checked + .toggle-slider::before { transform: translateX(16px); background
 .row-check { cursor: pointer; width: 16px; height: 16px; accent-color: var(--primary); }
 #check-all { cursor: pointer; width: 15px; height: 15px; accent-color: #fff; vertical-align: middle; }
 
+/* ── User Profile ───────────────────────────────────── */
+.user-profile { display: flex; align-items: center; gap: 12px; margin-left: 12px; padding-left: 12px; border-left: 1px solid var(--border); }
+.user-avatar { width: 32px; height: 32px; border-radius: 50%; background: var(--bg3); display: flex; align-items: center; justify-content: center; font-size: 16px; border: 1px solid var(--border); }
+.user-info { display: flex; flex-direction: column; gap: 2px; }
+.user-name { font-size: 12px; font-weight: 700; color: var(--text); }
+.btn-logout { background: none; border: none; color: var(--danger); font-size: 10px; font-weight: 600; cursor: pointer; padding: 0; text-align: left; opacity: 0.8; transition: opacity var(--transition); }
+.btn-logout:hover { opacity: 1; text-decoration: underline; }
+
+/* ── Import Preview ─────────────────────────── */
+.import-summary-box { display: flex; gap: 30px; background: var(--bg); padding: 15px 20px; border-radius: 10px; margin-bottom: 20px; border: 1px solid var(--border); }
+.summary-item .lbl { font-size: 12px; color: var(--text2); margin-right: 8px; }
+.summary-item strong { font-size: 15px; color: var(--primary); }
+
+.mapping-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 10px; margin: 15px 0 25px; }
+.mapping-item { display: flex; align-items: center; gap: 10px; background: var(--bg3); padding: 8px 12px; border-radius: 6px; font-size: 12px; border: 1px solid var(--border); }
+.m-header { font-weight: 700; color: var(--text); }
+.m-arrow { color: var(--primary); }
+.m-target { color: var(--success); font-weight: 700; }
+
+.import-sample-section h4, .import-mapping-section h4 { font-size: 14px; margin-bottom: 10px; color: var(--text2); }
+.mini-table { max-height: 300px; }
+.mini-table th { background: var(--bg3) !important; }

@@ -9,7 +9,27 @@
     "setup": "node setup-db.js",
     "migrate": "node src/database/migrate.js"
   },
-  "keywords": ["perpustakaan", "buku-induk", "library"],
+  "keywords": [
+    "perpustakaan",
+    "buku-induk",
+    "library"
+  ],
   "author": "",
-  "license": "ISC"
+  "license": "ISC",
+  "dependencies": {
+    "@google/generative-ai": "^0.24.1",
+    "better-auth": "^1.6.9",
+    "cors": "^2.8.5",
+    "dotenv": "^16.0.3",
+    "exceljs": "^4.3.0",
+    "express": "^4.18.2",
+    "multer": "^2.1.1",
+    "pdfkit": "^0.13.0",
+    "pg": "^8.11.0",
+    "uuid": "^14.0.0",
+    "xlsx": "^0.18.5"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.1"
+  }
 }

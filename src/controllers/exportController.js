@@ -7,10 +7,17 @@ const PDFDocument = require('pdfkit');
 // =============================================
 async function exportExcel(req, res) {
   try {
+    const { ids } = req.query;
+    let query = 'SELECT * FROM books';
+    let params = [];
+    if (ids) {
+      query += ' WHERE id = ANY($1)';
+      params = [ids.split(',')];
+    }
+    query += ' ORDER BY created_at ASC';
+
     // Ambil data buku
-    const booksRes = await pool.query(
-      'SELECT * FROM books ORDER BY created_at ASC'
-    );
+    const booksRes = await pool.query(query, params);
     // Ambil column styles untuk styling
     const colRes = await pool.query(
       'SELECT * FROM column_styles WHERE is_visible = true ORDER BY order_no ASC'
@@ -67,15 +74,27 @@ async function exportExcel(req, res) {
           const d = book[col.field_name];
           return d ? new Date(d).toLocaleDateString('id-ID') : '';
         }
-        return book[fieldMap[col.field_name] || col.field_name] || '';
+        let val = book[fieldMap[col.field_name] || col.field_name] || '';
+        // Ubah newline jadi spasi agar menyamping (horizontal)
+        if (col.field_name === 'call_number' && typeof val === 'string') {
+          val = val.replace(/\n/g, ' ');
+        }
+        return val;
       });
       const row = sheet.addRow(rowData);
-      row.eachCell(cell => {
+      row.eachCell((cell, i) => {
+        const col = columns[i - 1];
         cell.border = {
           top: {style:'thin'}, left: {style:'thin'},
           bottom: {style:'thin'}, right: {style:'thin'}
         };
-        cell.alignment = { vertical: 'middle', wrapText: true };
+        // Call number jangan wrap dan tampil horizontal
+        const isCallNumber = col.field_name === 'call_number';
+        cell.alignment = { 
+          vertical: 'middle', 
+          wrapText: isCallNumber ? false : true,
+          horizontal: 'left'
+        };
       });
       row.height = 20;
     });
@@ -103,9 +122,16 @@ async function exportExcel(req, res) {
 // =============================================
 async function exportPDF(req, res) {
   try {
-    const booksRes = await pool.query(
-      'SELECT * FROM books ORDER BY created_at ASC LIMIT 500'
-    );
+    const { ids } = req.query;
+    let query = 'SELECT * FROM books';
+    let params = [];
+    if (ids) {
+      query += ' WHERE id = ANY($1)';
+      params = [ids.split(',')];
+    }
+    query += ' ORDER BY created_at ASC LIMIT 1000';
+
+    const booksRes = await pool.query(query, params);
 
     const doc = new PDFDocument({ margin: 30, size: 'A4', layout: 'landscape' });
     res.setHeader('Content-Type', 'application/pdf');

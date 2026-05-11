@@ -1,83 +1,8 @@
 const pool = require('../config/database');
 const { suggestDDC } = require('../utils/ddcMapper');
+const { enrichBookData, suggestDDCByAI } = require('../utils/aiAssistant');
+const { generateNomorInduk, incrementFormattedNumber, generateCutter } = require('../utils/numberGenerator');
 
-// =============================================
-// Helper: Konversi bulan ke angka Romawi
-// =============================================
-const BULAN_ROMAWI = ['I','II','III','IV','V','VI','VII','VIII','IX','X','XI','XII'];
-
-// =============================================
-// Helper: Generate Nomor Induk Otomatis
-// Format contoh: 66384/UPT-Lib-BP/IV/2025
-//   {NO}          = nomor urut (66384)
-//   {UNIT}        = kode unit  (UPT-Lib-BP)
-//   {BULAN_ROMAWI}= bulan Romawi (IV)
-//   {BULAN}       = bulan 2 digit (04)
-//   {TAHUN}       = tahun 4 digit (2025)
-//   {PREFIX}      = alias untuk {UNIT} (backward compat)
-// =============================================
-async function generateNomorInduk(client) {
-  const settingsRes = await client.query(
-    `SELECT key, value FROM settings
-     WHERE key IN ('nomor_induk_format','nomor_induk_unit','nomor_induk_padding','nomor_induk_counter')`
-  );
-  const s = {};
-  settingsRes.rows.forEach(r => { s[r.key] = r.value; });
-
-  const format  = s['nomor_induk_format']  || '{NO}/{UNIT}/{BULAN_ROMAWI}/{TAHUN}';
-  const unit    = s['nomor_induk_unit']    || 'UPT-Lib-BP';
-  const padding = parseInt(s['nomor_induk_padding']) || 5;
-
-  // Increment counter
-  const counterRes = await client.query(
-    "UPDATE settings SET value = (value::int + 1)::text WHERE key = 'nomor_induk_counter' RETURNING value"
-  );
-  const counter = parseInt(counterRes.rows[0].value);
-
-  const now   = new Date();
-  const tahun = now.getFullYear();
-  const bulan = String(now.getMonth() + 1).padStart(2, '0');
-  const bulanRomawi = BULAN_ROMAWI[now.getMonth()];
-  const no    = String(counter).padStart(padding, '0');
-
-  return format
-    .replace('{NO}',           no)
-    .replace('{UNIT}',         unit)
-    .replace('{PREFIX}',       unit)       // backward compat
-    .replace('{BULAN_ROMAWI}', bulanRomawi)
-    .replace('{BULAN}',        bulan)
-    .replace('{TAHUN}',        tahun);
-}
-
-
-// =============================================
-// Helper: Auto Cutter (cutter number)
-// =============================================
-function generateCutter(pengarang) {
-  if (!pengarang) return '';
-  const clean = pengarang.trim().replace(/^(Muhammad|Mohammad|Moh\.|Dr\.|Prof\.|Ir\.|Drs\.)\s+/i, '');
-  return clean.substring(0, 3).toUpperCase();
-}
-
-// =============================================
-// Helper: Increment Nomor Induk (Smart)
-// =============================================
-function incrementFormattedNumber(str, offset) {
-  if (!str) return '';
-  // Temukan angka pertama (biasanya ID urut)
-  const match = str.match(/\d+/);
-  if (!match) return str;
-
-  const originalNumberStr = match[0];
-  const originalNumber = parseInt(originalNumberStr);
-  const nextNumber = originalNumber + offset;
-
-  // Pad dengan nol sesuai panjang aslinya
-  const nextNumberStr = String(nextNumber).padStart(originalNumberStr.length, '0');
-
-  // Ganti HANYA kemunculan pertama angka tersebut
-  return str.replace(originalNumberStr, nextNumberStr);
-}
 
 // =============================================
 // Helper: Auto Call Number
@@ -285,10 +210,7 @@ async function updateBook(req, res) {
     }
 
     const newQty  = parseInt(newBook.jumlah_eksemplar);
-    const fs = require('fs');
-    const logMsg = `[${new Date().toISOString()}] ID: ${id}, newQty: ${newQty}, actualQty: ${actualQty}\n`;
-    fs.appendFileSync('scratch/log.txt', logMsg);
-
+    
     // 1. Jika nomor_induk berubah, update eksemplar pertama (atau yang lama)
     if (req.body.nomor_induk !== undefined && req.body.nomor_induk !== oldNomorInduk) {
       await client.query(
@@ -372,7 +294,7 @@ async function updateCell(req, res) {
 
     const allowedFields = ['nomor_induk','judul','pengarang','penanggung_jawab','penerbit','tahun_terbit',
                            'kota_terbit','edisi_cetakan','isbn','fisik','klasifikasi','subjek',
-                           'call_number','tanggal_olah','sumber_perolehan'];
+                           'call_number','tanggal_olah','sumber_perolehan', 'jumlah_eksemplar'];
 
     if (!allowedFields.includes(field)) {
       return res.status(400).json({ success: false, message: `Field '${field}' tidak diizinkan diedit` });
@@ -422,11 +344,140 @@ function autoCutter(req, res) {
 // =============================================
 // GET /api/books/suggest-ddc?subject=...
 // =============================================
-function suggestDDCHandler(req, res) {
+async function suggestDDCHandler(req, res) {
   const { subject } = req.query;
   if (!subject) return res.status(400).json({ success: false, message: 'subject wajib diisi' });
+  
   const results = suggestDDC(subject);
+  
+  // Jika tidak ada hasil lokal, coba AI
+  if (results.length === 0) {
+    const aiDDC = await suggestDDCByAI(subject);
+    if (aiDDC) {
+      results.push({ ddc: aiDDC, score: 100, is_ai: true });
+    }
+  }
+
   res.json({ success: true, data: results });
 }
 
-module.exports = { getBooks, getBookById, createBook, updateBook, deleteBook, updateCell, autoCutter, suggestDDCHandler };
+async function bulkDeleteBooks(req, res) {
+  const { ids } = req.body;
+  if (!ids || !Array.isArray(ids)) {
+    return res.status(400).json({ success: false, message: 'ID tidak valid' });
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    await client.query('DELETE FROM books WHERE id = ANY($1)', [ids]);
+    await client.query('COMMIT');
+    res.json({ success: true, message: `${ids.length} buku berhasil dihapus` });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error(err);
+    res.status(500).json({ success: false, message: 'Gagal menghapus buku secara massal' });
+  } finally {
+    client.release();
+  }
+}
+
+// =============================================
+// GET /api/books/ai-enrich?title=...
+// =============================================
+async function aiEnrichHandler(req, res) {
+  try {
+    const { title, isbn } = req.query;
+    if (!title) return res.status(400).json({ success: false, message: 'title wajib diisi' });
+    
+    const data = await enrichBookData(title, isbn);
+    if (!data) return res.status(404).json({ success: false, message: 'AI tidak dapat menemukan data untuk buku ini. Coba judul yang lebih lengkap.' });
+    
+    res.json({ success: true, data });
+  } catch (err) {
+    console.error('AI Enrich Error:', err.message);
+    const status = err.code === 'QUOTA_EXCEEDED' ? 429 : 500;
+    res.status(status).json({ success: false, message: err.message });
+  }
+}
+
+async function bulkAiEnrichHandler(req, res) {
+  const { ids } = req.body;
+  if (!ids || !Array.isArray(ids)) {
+    return res.status(400).json({ success: false, message: 'ID tidak valid' });
+  }
+
+  const client = await pool.connect();
+  const results = { success: 0, fail: 0, errors: [] };
+
+  try {
+    for (const id of ids) {
+      try {
+        // 1. Ambil judul buku
+        const bookRes = await client.query('SELECT judul FROM books WHERE id = $1', [id]);
+        if (bookRes.rows.length === 0) continue;
+        const title = bookRes.rows[0].judul;
+
+        // 2. Tanya AI
+        const aiData = await enrichBookData(title);
+        if (!aiData) {
+          results.fail++;
+          continue;
+        }
+
+        // 3. Update buku (hanya field yang masih kosong)
+        // Kita ambil data buku saat ini dulu
+        const currBook = await client.query('SELECT * FROM books WHERE id = $1', [id]);
+        const b = currBook.rows[0];
+
+        const updates = [];
+        const values = [];
+        let idx = 1;
+
+        const fieldsToEnrich = [
+          'pengarang', 'penerbit', 'tahun_terbit', 'kota_terbit', 
+          'isbn', 'fisik', 'klasifikasi', 'subjek', 'edisi_cetakan'
+        ];
+
+        fieldsToEnrich.forEach(f => {
+          // Hanya update jika nilai aslinya kosong/null/000
+          const val = b[f];
+          const isMissing = !val || val === '000' || val === '0';
+          if (isMissing && aiData[f]) {
+            updates.push(`${f} = $${idx++}`);
+            values.push(aiData[f]);
+          }
+        });
+
+        if (updates.length > 0) {
+          values.push(id);
+          await client.query(`UPDATE books SET ${updates.join(', ')}, updated_at = NOW() WHERE id = $${idx}`, values);
+          results.success++;
+        } else {
+          results.success++; // Terhitung sukses meski tidak ada yang perlu diupdate
+        }
+
+        // Delay sedikit agar tidak terkena rate limit Gemini (sekitar 1-2 detik)
+        await new Promise(resolve => setTimeout(resolve, 1500));
+
+      } catch (err) {
+        console.error(`Error enriching book ${id}:`, err);
+        results.fail++;
+        results.errors.push({ id, message: err.message });
+      }
+    }
+
+    res.json({ success: true, data: results });
+  } catch (err) {
+    console.error('Bulk AI Error:', err);
+    res.status(500).json({ success: false, message: 'Gagal memproses AI secara massal' });
+  } finally {
+    client.release();
+  }
+}
+
+module.exports = { 
+  getBooks, getBookById, createBook, updateBook, 
+  deleteBook, bulkDeleteBooks, updateCell, 
+  autoCutter, suggestDDCHandler, aiEnrichHandler, bulkAiEnrichHandler
+};
