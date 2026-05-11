@@ -197,6 +197,11 @@ function renderTable() {
       }
       if (col.field_name==='no') return `<td style="${ss}">${offset+idx+1}</td>`;
       let val = book[col.field_name]??'';
+      if (col.field_name === 'nomor_induk') {
+        const parts = String(val).split('/');
+        parts[0] = parts[0].replace(/^0+/, '') || '0';
+        val = parts.join('/');
+      }
       if (col.field_name==='tanggal_olah'||col.field_name==='tanggal_entri') val = val?new Date(val).toLocaleDateString('id-ID'):'';
       return `<td data-id="${book.id}" data-field="${col.field_name}" class="editable-cell" style="${ss}" title="${val}">${val}</td>`;
     }).join('')+'</tr>';
@@ -1078,8 +1083,9 @@ function bindEvents() {
   $('modal-cetak-label-cancel').addEventListener('click', () => hide($('modal-cetak-label')));
   $('btn-do-cetak-label').addEventListener('click', () => {
     const paper = $('sel-label-paper-size').value;
+    const codeType = $('sel-label-code-type').value;
     const ids = Array.from(state.selectedIds).join(',');
-    window.open(`/api/print/book-labels?paper=${paper}&ids=${ids}`, '_blank');
+    window.open(`/api/print/book-labels?paper=${paper}&code_type=${codeType}&ids=${ids}`, '_blank');
     hide($('modal-cetak-label'));
   });
 
@@ -1114,6 +1120,24 @@ function bindEvents() {
   $('form-settings').addEventListener('submit', submitSettings);
   ['s-format','s-unit','s-padding','s-counter'].forEach(id => {
     const el = $(id); if (el) el.addEventListener('input', updateFormatPreview);
+  });
+  $('btn-sync-counter')?.addEventListener('click', async () => {
+    const btn = $('btn-sync-counter');
+    const oldHtml = btn.innerHTML;
+    btn.disabled = true; btn.innerHTML = '⏳...';
+    try {
+      const r = await api('/settings/sync-counter', { method: 'POST' });
+      if (r.success) {
+        toast(r.message, 'success');
+        loadSettings(); // Reload semua settings untuk update input counter
+      } else toast(r.message, 'error');
+    } finally {
+      btn.disabled = false; btn.innerHTML = oldHtml;
+    }
+  });
+  $('btn-backup-db').addEventListener('click', () => {
+    toast('Memulai download backup database...', 'info');
+    window.location = '/api/backup';
   });
   $('btn-reset-counter').addEventListener('click', async () => {
     if (!confirm('Reset counter nomor induk ke 0?')) return;

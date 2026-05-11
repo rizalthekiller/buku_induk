@@ -38,14 +38,18 @@ function generatePrintHTML(books, paper) {
   let pagesHtml = '';
   for (let i = 0; i < books.length; i += cardsPerPage) {
     const pageBooks = books.slice(i, i + cardsPerPage);
-    const cardsHtml = pageBooks.map(book => `
+    const cardsHtml = pageBooks.map(book => {
+      const parts = (book.nomor_induk || '').split('/');
+      parts[0] = parts[0].replace(/^0+/, '') || '0';
+      const displayNomor = parts.join('/');
+      return `
       <div class="book-card">
         <div class="header-section">
           <table class="header-table">
             <tr><td class="label">No. Klass</td><td class="sep">:</td><td class="val truncate">${book.klasifikasi || ''}</td></tr>
             <tr><td class="label">Pengarang</td><td class="sep">:</td><td class="val truncate">${book.pengarang || ''}</td></tr>
             <tr><td class="label">Judul</td><td class="sep">:</td><td class="val truncate">${book.judul || ''}</td></tr>
-            <tr><td class="label">No. Induk</td><td class="sep">:</td><td class="val truncate"><strong>${book.nomor_induk || ''}</strong></td></tr>
+            <tr><td class="label">No. Induk</td><td class="sep">:</td><td class="val truncate"><strong>${displayNomor}</strong></td></tr>
           </table>
         </div>
         <table class="data-table">
@@ -60,7 +64,8 @@ function generatePrintHTML(books, paper) {
           </tbody>
         </table>
       </div>
-    `).join('');
+      `;
+    }).join('');
     
     pagesHtml += `<div class="page ${paperClass}">${cardsHtml}</div>`;
   }
@@ -183,7 +188,7 @@ function generatePrintHTML(books, paper) {
 
 async function renderBookLabels(req, res) {
   try {
-    const { ids, paper = 'a4' } = req.query;
+    const { ids, paper = 'a4', code_type = 'qr' } = req.query;
     
     let query = `
       SELECT e.nomor_induk, b.judul, b.pengarang, b.klasifikasi, b.subjek, b.sumber_perolehan
@@ -201,7 +206,7 @@ async function renderBookLabels(req, res) {
     const result = await pool.query(query, params);
     const books = result.rows;
 
-    const html = generateLabelHTML(books, paper);
+    const html = generateLabelHTML(books, paper, code_type);
     res.send(html);
   } catch (err) {
     console.error(err);
@@ -209,38 +214,50 @@ async function renderBookLabels(req, res) {
   }
 }
 
-function generateLabelHTML(books, paper) {
+function generateLabelHTML(books, paper, codeType = 'qr') {
   const paperClass = paper === 'f4' ? 'paper-f4' : 'paper-a4';
   const labelsPerPage = 8; // 2 across x 4 down
   
   let pagesHtml = '';
   for (let i = 0; i < books.length; i += labelsPerPage) {
     const pageBooks = books.slice(i, i + labelsPerPage);
-    const labelsHtml = pageBooks.map(book => {
-      const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(book.nomor_induk)}`;
-      return `
-        <div class="label-card">
-          <div class="label-header">
-            <div class="logo-box">
-              <img src="/img/logo_uinsi.png" onerror="this.src='https://cdn-icons-png.flaticon.com/512/3308/3308395.png'" alt="Logo">
+      const labelsHtml = pageBooks.map(book => {
+        // Hilangkan leading zeros untuk data barcode/QR dan tampilan
+        const fullNomor = book.nomor_induk || '';
+        const parts = fullNomor.split('/');
+        const numPart = parts[0].replace(/^0+/, '') || '0';
+        
+        const dataCode = numPart; // SLiMS hanya butuh angka induknya saja tanpa leading zero
+        const displayNomor = [numPart, ...parts.slice(1)].join('/');
+        
+        const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(dataCode)}`;
+        
+        return `
+          <div class="label-card">
+            <div class="label-header">
+              <div class="logo-box">
+                <img src="/img/logo_uinsi.png" onerror="this.src='https://cdn-icons-png.flaticon.com/512/3308/3308395.png'" alt="Logo">
+              </div>
+              <div class="title-box">
+                <div class="inst">P E R P U S T A K A A N</div>
+                <div class="name">UINSI SAMARINDA</div>
+              </div>
             </div>
-            <div class="title-box">
-              <div class="inst">P E R P U S T A K A A N</div>
-              <div class="name">UINSI SAMARINDA</div>
-            </div>
-          </div>
-          <div class="label-body">
-            <div class="data-section">
-              <table class="data-table">
-                <tr><td class="lbl">No. Reg.</td><td class="sep">:</td><td class="val">${book.nomor_induk}</td></tr>
-                <tr><td class="lbl">No. Kelas</td><td class="sep">:</td><td class="val">${book.klasifikasi || ''}</td></tr>
-                <tr><td class="lbl">Pengarang</td><td class="sep">:</td><td class="val truncate">${book.pengarang || ''}</td></tr>
-                <tr><td class="lbl">Sumber</td><td class="sep">:</td><td class="val">${book.sumber_perolehan || ''}</td></tr>
-                <tr><td class="lbl">Subjek</td><td class="sep">:</td><td class="val truncate">${book.subjek || ''}</td></tr>
-              </table>
-            </div>
-            <div class="qr-section">
-              <img src="${qrUrl}" alt="QR">
+            <div class="label-body">
+              <div class="data-section">
+                <table class="data-table">
+                  <tr><td class="lbl">No. Reg.</td><td class="sep">:</td><td class="val">${displayNomor}</td></tr>
+                  <tr><td class="lbl">No. Kelas</td><td class="sep">:</td><td class="val">${book.klasifikasi || ''}</td></tr>
+                  <tr><td class="lbl">Pengarang</td><td class="sep">:</td><td class="val truncate">${book.pengarang || ''}</td></tr>
+                  <tr><td class="lbl">Sumber</td><td class="sep">:</td><td class="val">${book.sumber_perolehan || ''}</td></tr>
+                  <tr><td class="lbl">Subjek</td><td class="sep">:</td><td class="val truncate">${book.subjek || ''}</td></tr>
+                </table>
+              </div>
+            <div class="code-section">
+              ${codeType === 'barcode' 
+                ? `<svg class="barcode" data-value="${dataCode}"></svg>` 
+                : `<img src="${qrUrl}" alt="QR">`
+              }
             </div>
           </div>
         </div>
@@ -256,6 +273,7 @@ function generateLabelHTML(books, paper) {
     <head>
       <meta charset="UTF-8">
       <title>Cetak Label Buku</title>
+      <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.5/dist/JsBarcode.all.min.js"></script>
       <style>
         * { box-sizing: border-box; }
         body { margin: 0; padding: 0; background: #eee; font-family: Arial, sans-serif; }
@@ -299,10 +317,11 @@ function generateLabelHTML(books, paper) {
         .title-box .inst { font-size: 16px; font-weight: bold; letter-spacing: 3px; white-space: nowrap; margin-bottom: 1px; }
         .title-box .name { font-size: 17px; font-weight: bold; white-space: nowrap; }
 
-        .label-body { display: flex; flex: 1; align-items: center; position: relative; }
+        .label-body { display: flex; flex: 1; align-items: center; position: relative; gap: 2mm; }
         .data-section { flex: 1; }
-        .qr-section { width: 25mm; height: 25mm; flex-shrink: 0; }
-        .qr-section img { width: 100%; height: 100%; }
+        .code-section { width: 28mm; display: flex; align-items: center; justify-content: center; }
+        .code-section img { width: 25mm; height: 25mm; }
+        .barcode { width: 100%; height: 25mm; }
 
         .data-table { width: 100%; border-collapse: collapse; font-size: 13px; table-layout: fixed; }
         .data-table td { padding: 1.5px 0; vertical-align: top; }
@@ -333,6 +352,20 @@ function generateLabelHTML(books, paper) {
         <button class="btn btn-close" onclick="window.close()">Tutup</button>
       </div>
       ${pagesHtml}
+      <script>
+        document.addEventListener('DOMContentLoaded', function() {
+          const barcodes = document.querySelectorAll('.barcode');
+          barcodes.forEach(el => {
+            JsBarcode(el, el.dataset.value, {
+              format: "CODE128",
+              width: 1.5,
+              height: 50,
+              displayValue: false,
+              margin: 0
+            });
+          });
+        });
+      </script>
     </body>
     </html>
   `;

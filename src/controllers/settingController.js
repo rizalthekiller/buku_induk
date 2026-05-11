@@ -1,4 +1,5 @@
 const pool = require('../config/database');
+const { spawn } = require('child_process');
 
 // GET /api/settings
 async function getSettings(req, res) {
@@ -125,4 +126,76 @@ async function previewNomor(req, res) {
   }
 }
 
-module.exports = { getSettings, updateSettings, getTemplates, createTemplate, deleteTemplate, getStats, previewNomor };
+// GET /api/backup
+async function backupDatabase(req, res) {
+  try {
+    const host = process.env.DB_HOST || 'localhost';
+    const port = process.env.DB_PORT || 5432;
+    const db   = process.env.DB_NAME || 'buku_induk_db';
+    const user = process.env.DB_USER || 'postgres';
+    const pass = process.env.DB_PASSWORD || 'postgres';
+
+    const filename = `backup_buku_induk_${new Date().toISOString().slice(0, 10)}.sql`;
+
+    res.setHeader('Content-Type', 'application/sql');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+
+    // --no-owner dan --no-privileges memastikan file sql bisa di-import di komputer mana saja tanpa masalah user
+    const args = ['-h', host, '-p', port, '-U', user, '--no-owner', '--no-privileges', '-d', db];
+    const pgDumpPath = 'C:\\Program Files\\PostgreSQL\\18\\bin\\pg_dump.exe';
+    const dump = spawn(pgDumpPath, args, { env: { ...process.env, PGPASSWORD: pass } });
+
+    dump.stdout.pipe(res);
+
+    dump.stderr.on('data', (data) => {
+      console.error(`pg_dump stderr: ${data}`);
+    });
+
+    dump.on('error', (err) => {
+      console.error('Failed to start pg_dump:', err);
+      if (!res.headersSent) {
+        res.status(500).json({ success: false, message: 'Perintah pg_dump tidak ditemukan. Pastikan PostgreSQL client terinstal dan terdaftar di PATH.' });
+      }
+    });
+
+    dump.on('close', (code) => {
+      if (code !== 0 && !res.headersSent) {
+        res.status(500).write('\n-- Error: pg_dump failed with code ' + code);
+        res.end();
+      }
+    });
+  } catch (err) {
+    console.error('Backup error:', err);
+    if (!res.headersSent) {
+      res.status(500).json({ success: false, message: 'Gagal melakukan backup' });
+    }
+  }
+}
+
+// POST /api/settings/sync-counter
+async function syncCounter(req, res) {
+  try {
+    // Ambil angka tertinggi dari bagian pertama nomor_induk (sebelum '/')
+    const result = await pool.query(`
+      SELECT MAX(NULLIF(regexp_replace(split_part(nomor_induk, '/', 1), '[^0-9]', '', 'g'), '')::int) as max_no
+      FROM exemplars
+    `);
+    const maxNo = result.rows[0].max_no || 0;
+    
+    // Update setting counter di database
+    await pool.query(
+      "INSERT INTO settings (key, value) VALUES ('nomor_induk_counter', $1) ON CONFLICT (key) DO UPDATE SET value = $1",
+      [String(maxNo)]
+    );
+    
+    res.json({ success: true, maxNo, message: `Counter berhasil disinkronkan ke angka terakhir: ${maxNo}` });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+}
+
+module.exports = { 
+  getSettings, updateSettings, getTemplates, 
+  createTemplate, deleteTemplate, getStats, 
+  previewNomor, backupDatabase, syncCounter 
+};
